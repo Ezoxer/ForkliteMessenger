@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forklite Messenger</title>
+    <title>Suck's Messenger</title>
     <style>
         /* Стили остаются без изменений */
         * {
@@ -290,13 +290,28 @@
             background: rgba(0, 255, 0, 0.2);
             border: 1px solid rgba(0, 255, 0, 0.5);
         }
+
+        .permission-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .permission-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 15px;
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Forklite Messenger</h1>
+            <h1>Suck's Messenger</h1>
             <p>Чат и видеозвонки прямо в браузере</p>
         </div>
         
@@ -318,6 +333,16 @@
                     <p>Введите код комнаты:</p>
                     <input type="text" id="roomCodeInput" placeholder="Введите код комнаты">
                     <button id="connectToRoomBtn">Подключиться</button>
+                </div>
+
+                <!-- Секция запроса разрешений -->
+                <div class="permission-section hidden" id="permissionSection">
+                    <h3>Разрешения для видеозвонков</h3>
+                    <p>Для работы видеозвонков необходимо предоставить доступ к камере и микрофону</p>
+                    <div class="permission-buttons">
+                        <button id="allowMediaBtn">Разрешить доступ</button>
+                        <button id="skipMediaBtn" class="secondary">Пропустить</button>
+                    </div>
                 </div>
             </div>
             
@@ -350,16 +375,16 @@
                     <button id="endCallBtn" class="secondary" disabled>Завершить</button>
                 </div>
                 <div class="media-controls">
-                    <button id="toggleVideoBtn" class="icon-btn secondary">
+                    <button id="toggleVideoBtn" class="icon-btn secondary" disabled>
                         <i class="fas fa-video"></i>
                         <span>Камера</span>
                     </button>
-                    <button id="toggleAudioBtn" class="icon-btn secondary">
+                    <button id="toggleAudioBtn" class="icon-btn secondary" disabled>
                         <i class="fas fa-microphone"></i>
                         <span>Микрофон</span>
                     </button>
                 </div>
-                <div class="status" id="callStatus">Готов к звонку</div>
+                <div class="status" id="callStatus">Для звонка необходимо разрешить доступ к камере и микрофону</div>
             </div>
         </div>
     </div>
@@ -374,11 +399,14 @@
         const joinRoomSection = document.getElementById('joinRoomSection');
         const chatSection = document.getElementById('chatSection');
         const callSection = document.getElementById('callSection');
+        const permissionSection = document.getElementById('permissionSection');
         
         const createRoomBtn = document.getElementById('createRoomBtn');
         const joinRoomBtn = document.getElementById('joinRoomBtn');
         const startChatBtn = document.getElementById('startChatBtn');
         const connectToRoomBtn = document.getElementById('connectToRoomBtn');
+        const allowMediaBtn = document.getElementById('allowMediaBtn');
+        const skipMediaBtn = document.getElementById('skipMediaBtn');
         
         const roomCodeDisplay = document.getElementById('roomCodeDisplay');
         const roomCodeInput = document.getElementById('roomCodeInput');
@@ -408,7 +436,8 @@
         let isAudioEnabled = true;
         let isConnected = false;
         let peerId = null;
-        let isCallActive = false; // Флаг для отслеживания состояния звонка
+        let isCallActive = false;
+        let mediaAccessGranted = false;
         
         // Генерация случайного кода комнаты
         function generateRoomCode() {
@@ -438,6 +467,9 @@
             chatSection.style.display = 'flex';
             callSection.style.display = 'block';
             connectionStatus.textContent = 'Ожидание подключения...';
+            
+            // Показываем запрос разрешений после клика пользователя
+            permissionSection.classList.remove('hidden');
         });
         
         // Подключиться к комнате (клиент)
@@ -449,15 +481,41 @@
                 chatSection.style.display = 'flex';
                 callSection.style.display = 'block';
                 connectionStatus.textContent = 'Подключение...';
+                
+                // Показываем запрос разрешений после клика пользователя
+                permissionSection.classList.remove('hidden');
             } else {
                 alert('Пожалуйста, введите код комнаты');
             }
         });
         
+        // Разрешить доступ к медиаустройствам
+        allowMediaBtn.addEventListener('click', () => {
+            initializeMedia().then(() => {
+                permissionSection.classList.add('hidden');
+                callStatus.textContent = 'Готов к звонку';
+                startCallBtn.disabled = false;
+                toggleVideoBtn.disabled = false;
+                toggleAudioBtn.disabled = false;
+                mediaAccessGranted = true;
+            }).catch(err => {
+                console.error('Ошибка доступа к медиаустройствам:', err);
+                callStatus.textContent = 'Ошибка доступа к камере/микрофону';
+                callStatus.classList.add('error');
+            });
+        });
+        
+        // Пропустить доступ к медиаустройствам
+        skipMediaBtn.addEventListener('click', () => {
+            permissionSection.classList.add('hidden');
+            callStatus.textContent = 'Доступ к камере/микрофону не предоставлен';
+            callStatus.classList.add('error');
+            startCallBtn.disabled = true;
+        });
+        
         // Инициализация Peer соединения
         function initializePeer(id = null) {
             try {
-                // Используем более надежные настройки PeerJS
                 const peerOptions = {
                     debug: 3,
                     config: {
@@ -468,7 +526,6 @@
                     }
                 };
 
-                // Создаем Peer с ID или без (генерируется автоматически)
                 if (id) {
                     peer = new Peer(id, peerOptions);
                 } else {
@@ -482,19 +539,14 @@
                     connectionStatus.classList.add('success');
                     
                     if (!isHost) {
-                        // Ждем немного перед подключением к хосту
                         setTimeout(() => {
                             connectToHost();
                         }, 1000);
                     }
-                    
-                    // Инициализируем медиаустройства
-                    initializeMedia();
                 });
                 
                 peer.on('connection', (connection) => {
                     console.log('Входящее соединение от:', connection.peer);
-                    // Хост принимает входящее соединение
                     conn = connection;
                     setupConnection();
                     isConnected = true;
@@ -505,7 +557,6 @@
                     connectionStatus.textContent = 'Ошибка: ' + err.type;
                     connectionStatus.classList.add('error');
                     
-                    // Повторная инициализация при некоторых ошибках
                     if (err.type === 'unavailable-id' || err.type === 'peer-unavailable') {
                         setTimeout(() => {
                             if (isHost) {
@@ -521,22 +572,21 @@
                 peer.on('call', (call) => {
                     console.log('Входящий звонок от:', call.peer);
                     
-                    // Отвечаем на звонок с нашим видеопотоком
                     if (localStream) {
                         call.answer(localStream);
                         setupCall(call);
-                        
-                        // Уведомляем о входящем звонке
                         callStatus.textContent = 'Входящий звонок...';
                         addMessage('Система: Входящий звонок', 'system');
                     } else {
                         console.error('Локальный поток не доступен для ответа на звонок');
-                        // Пытаемся получить медиаустройства и ответить
+                        // Пытаемся получить медиаустройства при входящем звонке
                         getUserMedia().then(stream => {
                             call.answer(stream);
                             setupCall(call);
                         }).catch(err => {
                             console.error('Не удалось получить доступ к медиаустройствам:', err);
+                            callStatus.textContent = 'Не удалось получить доступ к камере/микрофону';
+                            callStatus.classList.add('error');
                         });
                     }
                 });
@@ -571,7 +621,6 @@
                 connectionStatus.textContent = 'Ошибка подключения к комнате';
                 connectionStatus.classList.add('error');
                 
-                // Повторная попытка подключения
                 setTimeout(() => {
                     if (peer && peer.id) {
                         connectToHost();
@@ -582,12 +631,25 @@
         
         // Инициализация медиаустройств
         function initializeMedia() {
-            getUserMedia().then(stream => {
+            return getUserMedia().then(stream => {
                 console.log('Медиаустройства инициализированы');
-            }).catch(err => {
-                console.error('Ошибка доступа к медиаустройствам:', err);
-                callStatus.textContent = 'Ошибка доступа к камере/микрофону';
-                callStatus.classList.add('error');
+                return stream;
+            });
+        }
+        
+        // Получение доступа к медиаустройствам
+        function getUserMedia() {
+            return navigator.mediaDevices.getUserMedia({ 
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }, 
+                audio: true 
+            }).then(stream => {
+                localStream = stream;
+                localVideo.srcObject = stream;
+                mediaAccessGranted = true;
+                return stream;
             });
         }
         
@@ -598,12 +660,10 @@
                 connectionStatus.textContent = 'Подключено к собеседнику';
                 connectionStatus.classList.add('success');
                 
-                // Отправляем приветственное сообщение
                 if (isHost) {
                     addMessage('Система: Вы создали комнату. Ожидание участников...', 'system');
                 } else {
                     addMessage('Система: Вы присоединились к комнате', 'system');
-                    // Уведомляем хост о подключении
                     conn.send({ type: 'user_joined', message: 'Пользователь присоединился' });
                 }
             });
@@ -619,7 +679,6 @@
                     endCall();
                     addMessage('Система: Собеседник завершил звонок', 'system');
                 } else if (data.type === 'call_request') {
-                    // Уведомление о запросе звонка
                     addMessage('Система: Собеседник звонит вам', 'system');
                 }
             });
@@ -636,21 +695,6 @@
                 console.error('Connection error:', err);
                 connectionStatus.textContent = 'Ошибка соединения';
                 connectionStatus.classList.add('error');
-            });
-        }
-        
-        // Получение доступа к медиаустройствам
-        function getUserMedia() {
-            return navigator.mediaDevices.getUserMedia({ 
-                video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }, 
-                audio: true 
-            }).then(stream => {
-                localStream = stream;
-                localVideo.srcObject = stream;
-                return stream;
             });
         }
         
@@ -694,21 +738,30 @@
                 return;
             }
             
+            if (!mediaAccessGranted) {
+                callStatus.textContent = 'Ошибка: Доступ к камере/микрофону не предоставлен';
+                callStatus.classList.add('error');
+                return;
+            }
+            
             callStatus.textContent = 'Установка соединения...';
             
-            // Уведомляем собеседника о звонке
             conn.send({ type: 'call_request', message: 'Входящий звонок' });
             
-            // Получаем доступ к камере и микрофону
-            getUserMedia().then(stream => {
-                // Звоним другому участнику
-                currentCall = peer.call(currentRoomCode, stream);
+            if (localStream) {
+                currentCall = peer.call(currentRoomCode, localStream);
                 setupCall(currentCall);
-            }).catch(err => {
-                console.error('Ошибка доступа к медиаустройствам:', err);
-                callStatus.textContent = 'Ошибка доступа к камере/микрофону';
-                callStatus.classList.add('error');
-            });
+            } else {
+                // Если локального потока нет, пытаемся получить его
+                getUserMedia().then(stream => {
+                    currentCall = peer.call(currentRoomCode, stream);
+                    setupCall(currentCall);
+                }).catch(err => {
+                    console.error('Ошибка доступа к медиаустройствам:', err);
+                    callStatus.textContent = 'Ошибка доступа к камере/микрофону';
+                    callStatus.classList.add('error');
+                });
+            }
         }
         
         // Настройка обработчиков для звонка
@@ -727,7 +780,6 @@
             
             call.on('close', () => {
                 console.log('Звонок завершен');
-                // Проверяем, не был ли звонок уже завершен
                 if (isCallActive) {
                     endCall();
                     addMessage('Система: Звонок завершен', 'system');
@@ -748,14 +800,12 @@
         
         // Завершить видеозвонок
         endCallBtn.addEventListener('click', () => {
-            // Добавляем защиту от множественных нажатий
             if (isCallActive) {
                 endCall();
             }
         });
         
         function endCall() {
-            // Проверяем, не был ли звонок уже завершен
             if (!isCallActive) return;
             
             console.log('Завершение звонка...');
@@ -766,20 +816,17 @@
                 currentCall = null;
             }
             
-            // Останавливаем только удаленный поток, локальный оставляем для возможного следующего звонка
             remoteVideo.srcObject = null;
             
             callStatus.textContent = 'Звонок завершен';
             callStatus.classList.remove('success', 'error');
-            startCallBtn.disabled = false;
+            startCallBtn.disabled = !mediaAccessGranted;
             endCallBtn.disabled = true;
             
-            // Уведомляем другого участника о завершении звонка
             if (conn && isConnected) {
                 conn.send({ type: 'call_ended', message: 'Звонок завершен' });
             }
             
-            // Обновляем иконки кнопок управления медиа
             updateMediaButtons();
         }
         
